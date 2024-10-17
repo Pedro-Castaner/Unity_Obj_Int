@@ -9,8 +9,8 @@ public class NeopixelBLEController : MonoBehaviour
     public string LedUUID = "A9E90001-194C-4523-A473-5FDF36AA4D18";  // UUID de la característica para controlar el Neopixel
 
     public PokeInteractable pokeInteractable;  // El botón de interacción en VR
+    public Grabbable varitaGrabbable;  // El componente Grabbable de la varita
     public Text connectionStatus;  // Texto para mostrar el estado de la conexión
-    public Text debugText;  // Nuevo texto para mostrar los mensajes de depuración en la UI
     private bool isConnected = false;  // Bandera de conexión
     private string _deviceAddress;  // Dirección del dispositivo BLE
 
@@ -18,25 +18,16 @@ public class NeopixelBLEController : MonoBehaviour
 
     void Start()
     {
-        // Verificación inicial de que el Text está asignado
-        if (debugText == null)
-        {
-            UnityEngine.Debug.LogError("Debug Text no está asignado en el Inspector.");
-        }
-
         UpdateConnectionStatus("Iniciando BLE...");
-        UpdateDebugText("Iniciando BLE...");
 
         // Inicializamos BLE
         BluetoothLEHardwareInterface.Initialize(true, false, () =>
         {
             UpdateConnectionStatus("BLE inicializado.");
-            UpdateDebugText("BLE inicializado.");
             SetNeopixelColor(false);  // Rojo al inicio (no conectado)
         }, (error) =>
         {
             UpdateConnectionStatus("Error al inicializar BLE: " + error);
-            UpdateDebugText("Error al inicializar BLE: " + error);
         });
 
         // Escuchar el evento del botón Poke
@@ -47,7 +38,16 @@ public class NeopixelBLEController : MonoBehaviour
         else
         {
             UpdateConnectionStatus("Error: PokeInteractable no configurado.");
-            UpdateDebugText("Error: PokeInteractable no configurado.");
+        }
+
+        // Escuchar eventos de agarre de la varita
+        if (varitaGrabbable != null)
+        {
+            varitaGrabbable.WhenPointerEventRaised += OnVaritaGrabEvent;
+        }
+        else
+        {
+            UpdateConnectionStatus("Error: Varita Grabbable no configurado.");
         }
     }
 
@@ -57,19 +57,39 @@ public class NeopixelBLEController : MonoBehaviour
         {
             pokeInteractable.WhenPointerEventRaised -= OnPokeInteraction;
         }
+
+        if (varitaGrabbable != null)
+        {
+            varitaGrabbable.WhenPointerEventRaised -= OnVaritaGrabEvent;
+        }
     }
 
     // Método invocado al presionar el botón de Poke
     private void OnPokeInteraction(PointerEvent evt)
     {
         UpdateConnectionStatus("Poke detectado. Evento: " + evt.Type.ToString());
-        UpdateDebugText("Poke detectado. Evento: " + evt.Type.ToString());
 
         if (evt.Type == PointerEventType.Select && !isConnected && !scanning)
         {
             UpdateConnectionStatus("Iniciando escaneo por BLE...");
-            UpdateDebugText("Iniciando escaneo por BLE...");
             ScanForDevice();
+        }
+    }
+
+    // Método invocado al agarrar o soltar la varita
+    private void OnVaritaGrabEvent(PointerEvent evt)
+    {
+        if (evt.Type == PointerEventType.Select && isConnected)
+        {
+            // Cuando la varita es agarrada, cambia el LED a azul
+            UpdateConnectionStatus("Varita agarrada, cambiando LED a azul.");
+            SetNeopixelColorToBlue();
+        }
+        else if (evt.Type == PointerEventType.Unselect && isConnected)
+        {
+            // Cuando la varita es soltada, vuelve a verde
+            UpdateConnectionStatus("Varita soltada, cambiando LED a verde.");
+            SetNeopixelColor(true);  // Volver a verde
         }
     }
 
@@ -79,37 +99,20 @@ public class NeopixelBLEController : MonoBehaviour
         connectionStatus.text = message;
     }
 
-    // Actualizar el texto de depuración en la UI
-    private void UpdateDebugText(string message)
-    {
-        if (debugText != null)
-        {
-            debugText.text += message + "\n";  // Agregar cada mensaje nuevo
-            UnityEngine.Debug.Log("Texto de debug actualizado: " + message);  // Agregar log en consola para ver si está llamando a esta función
-        }
-        else
-        {
-            UnityEngine.Debug.LogError("Debug Text es nulo, no se puede actualizar.");
-        }
-    }
-
     // Iniciar el escaneo para encontrar el dispositivo BLE
     void ScanForDevice()
     {
         scanning = true;
         UpdateConnectionStatus("Escaneando dispositivos BLE...");
-        UpdateDebugText("Escaneando dispositivos BLE...");
 
         BluetoothLEHardwareInterface.ScanForPeripheralsWithServices(null, (address, name) =>
         {
             // Mostrar en el texto de la UI qué dispositivos se encuentran durante el escaneo
             UpdateConnectionStatus($"Dispositivo detectado: {name}");
-            UpdateDebugText($"Dispositivo detectado: {name}");
 
             if (name.Contains(DeviceName))
             {
                 UpdateConnectionStatus("Dispositivo encontrado: " + name);
-                UpdateDebugText("Dispositivo encontrado: " + name);
                 BluetoothLEHardwareInterface.StopScan();
                 _deviceAddress = address;
                 ConnectToDevice();
@@ -117,12 +120,10 @@ public class NeopixelBLEController : MonoBehaviour
             else
             {
                 UpdateConnectionStatus($"Otro dispositivo encontrado: {name}, ignorando...");
-                UpdateDebugText($"Otro dispositivo encontrado: {name}, ignorando...");
             }
         }, (address, name, rssi, advertisingInfo) =>
         {
             UpdateConnectionStatus($"Dispositivo detectado: {name} con RSSI: {rssi}");
-            UpdateDebugText($"Dispositivo detectado: {name} con RSSI: {rssi}");
         });
     }
 
@@ -130,43 +131,45 @@ public class NeopixelBLEController : MonoBehaviour
     void ConnectToDevice()
     {
         UpdateConnectionStatus("Conectando al dispositivo...");
-        UpdateDebugText("Conectando al dispositivo...");
 
         BluetoothLEHardwareInterface.ConnectToPeripheral(_deviceAddress, null, null, (address, serviceUUID, characteristicUUID) =>
         {
-            // Log para mostrar los UUIDs recibidos
-            UpdateDebugText($"Servicio UUID recibido: {serviceUUID}, Característica UUID recibida: {characteristicUUID}");
-
             // Verificar si los UUID coinciden con los definidos
-            if (serviceUUID == ServiceUUID && characteristicUUID == LedUUID)
+            if (serviceUUID.Trim().ToLower() == ServiceUUID.ToLower() && characteristicUUID.Trim().ToLower() == LedUUID.ToLower())
             {
                 isConnected = true;
                 UpdateConnectionStatus("Conectado al dispositivo ESP32");
-                UpdateDebugText("Conectado al dispositivo ESP32");
                 SetNeopixelColor(true);  // Cambia a verde cuando está conectado
             }
             else
             {
                 UpdateConnectionStatus("UUID no coincide, no es el dispositivo esperado.");
-                UpdateDebugText("UUID no coincide, no es el dispositivo esperado.");
             }
         }, (disconnectedAddress) =>
         {
             isConnected = false;
             UpdateConnectionStatus("Dispositivo desconectado");
-            UpdateDebugText("Dispositivo desconectado");
             SetNeopixelColor(false);  // Rojo si se desconecta
+        });
+    }
+
+    // Cambiar el color del Neopixel a azul (agarrado)
+    void SetNeopixelColorToBlue()
+    {
+        byte[] data = new byte[] { 0x00, 0x00, 0xFF };  // Azul (RGB 0, 0, 255)
+        BluetoothLEHardwareInterface.WriteCharacteristic(_deviceAddress, ServiceUUID, LedUUID, data, data.Length, true, (characteristicUUID) =>
+        {
+            UpdateConnectionStatus("Neopixel cambiado a azul.");
         });
     }
 
     // Cambiar el color del Neopixel: verde para conectado, rojo para desconectado
     void SetNeopixelColor(bool connected)
     {
-        byte[] data = connected ? new byte[] { 0x01 } : new byte[] { 0x00 };  // 0x01 es verde, 0x00 es rojo
+        byte[] data = connected ? new byte[] { 0x00, 0xFF, 0x00 } : new byte[] { 0xFF, 0x00, 0x00 };  // Verde (0, 255, 0), Rojo (255, 0, 0)
         BluetoothLEHardwareInterface.WriteCharacteristic(_deviceAddress, ServiceUUID, LedUUID, data, data.Length, true, (characteristicUUID) =>
         {
-            UpdateConnectionStatus("Neopixel color cambiado.");
-            UpdateDebugText("Neopixel color cambiado.");
+            UpdateConnectionStatus(connected ? "Neopixel cambiado a verde." : "Neopixel cambiado a rojo.");
         });
     }
 }
