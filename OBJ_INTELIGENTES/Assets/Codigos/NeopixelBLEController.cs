@@ -81,9 +81,9 @@ public class NeopixelBLEController : MonoBehaviour
     {
         if (evt.Type == PointerEventType.Select && isConnected)
         {
-            // Cuando la varita es agarrada, cambia el LED a azul
-            UpdateConnectionStatus("Varita agarrada, cambiando LED a azul.");
-            SetNeopixelColorToBlue();
+            // Cuando la varita es agarrada, cambia el LED a morado
+            UpdateConnectionStatus("Varita agarrada, cambiando LED a morado.");
+            SetNeopixelColorToPurple();
         }
         else if (evt.Type == PointerEventType.Unselect && isConnected)
         {
@@ -153,13 +153,13 @@ public class NeopixelBLEController : MonoBehaviour
         });
     }
 
-    // Cambiar el color del Neopixel a azul (agarrado)
-    void SetNeopixelColorToBlue()
+    // Cambiar el color del Neopixel a morado (agarrado)
+    void SetNeopixelColorToPurple()
     {
-        byte[] data = new byte[] { 0x00, 0x00, 0xFF };  // Azul (RGB 0, 0, 255)
+        byte[] data = new byte[] { 0x80, 0x00, 0x80 };  // Morado (RGB 128, 0, 128)
         BluetoothLEHardwareInterface.WriteCharacteristic(_deviceAddress, ServiceUUID, LedUUID, data, data.Length, true, (characteristicUUID) =>
         {
-            UpdateConnectionStatus("Neopixel cambiado a azul.");
+            UpdateConnectionStatus("Neopixel cambiado a morado.");
         });
     }
 
