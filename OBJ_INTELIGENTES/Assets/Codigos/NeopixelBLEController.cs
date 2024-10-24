@@ -83,14 +83,30 @@ public class NeopixelBLEController : MonoBehaviour
         {
             // Cuando la varita es agarrada, cambia el LED a morado
             UpdateConnectionStatus("Varita agarrada, cambiando LED a morado.");
-            SetNeopixelColorToPurple();
+            SendColorAndMotorCommand(128, 0, 128, true);  // Morado y motor encendido
         }
         else if (evt.Type == PointerEventType.Unselect && isConnected)
         {
             // Cuando la varita es soltada, vuelve a verde
             UpdateConnectionStatus("Varita soltada, cambiando LED a verde.");
-            SetNeopixelColor(true);  // Volver a verde
+            SendColorAndMotorCommand(0, 255, 0, false);  // Verde y motor apagado
         }
+    }
+
+    // Enviar color y estado del motor en un solo comando
+    public void SendColorAndMotorCommand(byte r, byte g, byte b, bool motorState)
+    {
+        byte[] command = new byte[4];
+        command[0] = r;  // Rojo
+        command[1] = g;  // Verde
+        command[2] = b;  // Azul
+        command[3] = (byte)(motorState ? 1 : 0);  // 1 para encender, 0 para apagar
+
+        // Envía el comando a la característica BLE
+        BluetoothLEHardwareInterface.WriteCharacteristic(_deviceAddress, ServiceUUID, LedUUID, command, command.Length, true, (characteristicUUID) =>
+        {
+            UpdateConnectionStatus("Comando enviado: LED(" + r + ", " + g + ", " + b + ") Motor estado: " + (motorState ? "Encendido" : "Apagado"));
+        });
     }
 
     // Actualizar el estado de conexión en la UI
@@ -153,23 +169,21 @@ public class NeopixelBLEController : MonoBehaviour
         });
     }
 
-    // Cambiar el color del Neopixel a morado (agarrado)
-    void SetNeopixelColorToPurple()
-    {
-        byte[] data = new byte[] { 0x80, 0x00, 0x80 };  // Morado (RGB 128, 0, 128)
-        BluetoothLEHardwareInterface.WriteCharacteristic(_deviceAddress, ServiceUUID, LedUUID, data, data.Length, true, (characteristicUUID) =>
-        {
-            UpdateConnectionStatus("Neopixel cambiado a morado.");
-        });
-    }
-
     // Cambiar el color del Neopixel: verde para conectado, rojo para desconectado
     void SetNeopixelColor(bool connected)
     {
-        byte[] data = connected ? new byte[] { 0x00, 0xFF, 0x00 } : new byte[] { 0xFF, 0x00, 0x00 };  // Verde (0, 255, 0), Rojo (255, 0, 0)
+        byte r = connected ? (byte)0x00 : (byte)0xFF; // Rojo (255) si no está conectado
+        byte g = connected ? (byte)0xFF : (byte)0x00; // Verde (255) si está conectado
+        byte b = (byte)0x00; // Azul (0)
+
+        // Agregar el estado del motor (0 para apagado, 1 para encendido)
+        byte motorState = 0; // Cambiar a 1 si necesitas que el motor esté encendido
+        byte[] data = new byte[] { r, g, b, motorState };
+
         BluetoothLEHardwareInterface.WriteCharacteristic(_deviceAddress, ServiceUUID, LedUUID, data, data.Length, true, (characteristicUUID) =>
         {
             UpdateConnectionStatus(connected ? "Neopixel cambiado a verde." : "Neopixel cambiado a rojo.");
         });
     }
+
 }
