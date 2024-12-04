@@ -1144,9 +1144,4 @@ public class BluetoothLEHardwareInterface
 			return "0000" + uuid + "-0000-1000-8000-00805F9B34FB";
 		return uuid;
 	}
-
-    public static void ConnectToPeripheral(string deviceAddress, Action<string, object, object> value1, Action<string> value2)
-    {
-        throw new NotImplementedException();
-    }
 }

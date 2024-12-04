@@ -1,33 +1,43 @@
 <?xml version="1.0" encoding="utf-8" standalone="no"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    android:installLocation="auto">
+    android:installLocation="auto"
+    package="com.example.yourapp">
 
     <!-- Permisos necesarios para Bluetooth y BLE -->
     <uses-permission android:name="android.permission.BLUETOOTH" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
-
-    <!-- Permisos para escanear y conectar dispositivos BLE en Android 12 o superior -->
-    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
+    
+    <!-- Permisos para BLE en Android 12 o superior -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" />
-
-    <!-- Permiso de ubicación requerido para BLE en Android 6.0 o superior -->
+    
+    <!-- Permiso de ubicaciÃ³n requerido para BLE en Android 6.0 o superior -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
-    <!-- Permiso de ubicación para dispositivos con BLE en segundo plano (solo si es necesario) -->
+    <!-- Permiso para BLE en segundo plano (solo si es necesario) -->
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
+
+    <!-- Declarar compatibilidad con dispositivos BLE -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
+
+    <!-- Requerimiento de hardware VR -->
+    <uses-feature
+        android:name="android.hardware.vr.headtracking"
+        android:version="1"
+        android:required="true" />
 
     <application
         android:label="@string/app_name"
         android:icon="@mipmap/app_icon"
-        android:allowBackup="false">
+        android:allowBackup="false"
+        android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen">
 
         <activity
-            android:theme="@android:style/Theme.Black.NoTitleBar.Fullscreen"
+            android:name="com.unity3d.player.UnityPlayerActivity"
             android:configChanges="locale|fontScale|keyboard|keyboardHidden|mcc|mnc|navigation|orientation|screenLayout|screenSize|smallestScreenSize|touchscreen|uiMode"
             android:launchMode="singleTask"
-            android:name="com.unity3d.player.UnityPlayerActivity"
             android:excludeFromRecents="true"
             android:exported="true">
             <intent-filter>
@@ -41,9 +51,12 @@
                 android:value="true" />
         </activity>
 
+        <!-- ConfiguraciÃ³n de Unity -->
         <meta-data
             android:name="unityplayer.SkipPermissionsDialog"
             android:value="false" />
+
+        <!-- ConfiguraciÃ³n de Oculus -->
         <meta-data
             android:name="com.samsung.android.vr.application.mode"
             android:value="vr_only" />
@@ -58,10 +71,4 @@
             android:value="quest|quest2|questpro|eureka" />
 
     </application>
-
-    <!-- Requerimiento de hardware VR -->
-    <uses-feature
-        android:name="android.hardware.vr.headtracking"
-        android:version="1"
-        android:required="true" />
 </manifest>
