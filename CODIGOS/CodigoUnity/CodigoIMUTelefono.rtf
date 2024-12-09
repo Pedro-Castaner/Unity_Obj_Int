@@ -1,0 +1,131 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2761
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 using UnityEngine;\
+using UnityEngine.UI;\
+using System.Collections.Generic;\
+\
+public class NeopixelBLEController : MonoBehaviour\
+\{\
+    public string DeviceName = "ESP32 Neopixel Controller";  // Nombre del dispositivo BLE\
+    public string ServiceUUID = "A9E90000-194C-4523-A473-5FDF36AA4D18";  // UUID del servicio BLE\
+    public string IMUUUID = "A9E90001-194C-4523-A473-5FDF36AA4D18";  // UUID para los datos de IMU\
+    public Button scanButton;  // Bot\'f3n UI para escanear dispositivos\
+    public Text connectionStatus;  // Texto para el estado de la conexi\'f3n\
+    public Text imuDataText;  // Texto para mostrar los datos de IMU\
+    public Text imuDataCanvasText;  // Texto para mostrar los datos de IMU en el Canvas\
+\
+    private bool isConnected = false;  // Bandera de conexi\'f3n\
+    private string _deviceAddress;  // Direcci\'f3n del dispositivo BLE\
+    private bool scanning = false;\
+\
+    void Start()\
+    \{\
+        UpdateConnectionStatus("Iniciando BLE...");\
+\
+        BluetoothLEHardwareInterface.Initialize(true, false, () =>\
+        \{\
+            UpdateConnectionStatus("BLE inicializado.");\
+            if (scanButton != null)\
+            \{\
+                scanButton.interactable = true;  // Habilita el bot\'f3n de scan una vez inicializado el BLE\
+            \}\
+        \}, (error) =>\
+        \{\
+            UpdateConnectionStatus("Error al inicializar BLE: " + error);\
+        \});\
+\
+        if (scanButton != null)\
+        \{\
+            scanButton.onClick.AddListener(OnButtonClick);  // Asigna el listener de clic para el bot\'f3n UI\
+        \}\
+    \}\
+\
+    private void OnDestroy()\
+    \{\
+        if (scanButton != null)\
+        \{\
+            scanButton.onClick.RemoveAllListeners();  // Remueve el listener del bot\'f3n UI al destruir el objeto\
+        \}\
+    \}\
+\
+    private void OnButtonClick()\
+    \{\
+        if (!isConnected && !scanning)\
+        \{\
+            UpdateConnectionStatus("Iniciando escaneo por BLE...");\
+            scanning = true;\
+            ScanForDevice();\
+        \}\
+    \}\
+\
+    void ScanForDevice()\
+    \{\
+        scanning = true;\
+        UpdateConnectionStatus("Escaneando dispositivos BLE...");\
+\
+        BluetoothLEHardwareInterface.ScanForPeripheralsWithServices(null, (address, name) =>\
+        \{\
+            UpdateConnectionStatus($"Dispositivo detectado: \{name\}");\
+\
+            if (name.Contains(DeviceName))\
+            \{\
+                UpdateConnectionStatus("Dispositivo encontrado: " + name);\
+                BluetoothLEHardwareInterface.StopScan();\
+                _deviceAddress = address;\
+                ConnectToDevice();\
+            \}\
+        \});\
+    \}\
+\
+    void ConnectToDevice()\
+    \{\
+        BluetoothLEHardwareInterface.ConnectToPeripheral(_deviceAddress, null, null, (address, serviceUUID, characteristicUUID) =>\
+        \{\
+            if (serviceUUID.Trim().ToLower() == ServiceUUID.ToLower() && characteristicUUID.Trim().ToLower() == IMUUUID.ToLower())\
+            \{\
+                isConnected = true;\
+                UpdateConnectionStatus("Conectado al dispositivo ESP32");\
+\
+                BluetoothLEHardwareInterface.SubscribeCharacteristicWithDeviceAddress(\
+                    _deviceAddress,\
+                    ServiceUUID,\
+                    IMUUUID,\
+                    null,\
+                    OnIMUDataReceived\
+                );\
+            \}\
+        \}, (disconnectedAddress) =>\
+        \{\
+            isConnected = false;\
+            UpdateConnectionStatus("Dispositivo desconectado");\
+        \});\
+    \}\
+\
+    private void OnIMUDataReceived(string deviceAddress, string characteristic, byte[] data)\
+    \{\
+        if (data.Length >= 6)  // Ejemplo: suponiendo que la IMU env\'eda 6 bytes (3 ejes de 2 bytes cada uno)\
+        \{\
+            short accelX = System.BitConverter.ToInt16(data, 0);\
+            short accelY = System.BitConverter.ToInt16(data, 2);\
+            short accelZ = System.BitConverter.ToInt16(data, 4);\
+\
+            imuDataText.text = $"IMU Data: X=\{accelX\}, Y=\{accelY\}, Z=\{accelZ\}";\
+            imuDataCanvasText.text = $"IMU Data: X=\{accelX\}, Y=\{accelY\}, Z=\{accelZ\}";\
+            Debug.Log($"IMU Data - X:\{accelX\}, Y:\{accelY\}, Z:\{accelZ\}");\
+        \}\
+        else\
+        \{\
+            UpdateConnectionStatus("Datos de IMU recibidos con tama\'f1o inesperado.");\
+        \}\
+    \}\
+\
+    private void UpdateConnectionStatus(string message)\
+    \{\
+        connectionStatus.text = message;\
+    \}\
+\}}

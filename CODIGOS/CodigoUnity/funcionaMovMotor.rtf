@@ -1,0 +1,212 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2820
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\froman\fcharset0 Times-Roman;}
+{\colortbl;\red255\green255\blue255;\red0\green0\blue0;}
+{\*\expandedcolortbl;;\cssrgb\c0\c0\c0;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\deftab720
+\pard\pardeftab720\partightenfactor0
+
+\f0\fs24 \cf0 \expnd0\expndtw0\kerning0
+\outl0\strokewidth0 \strokec2 using UnityEngine;\
+using Oculus.Interaction;\
+using UnityEngine.UI;\
+using System.Collections; // Necesario para corrutinas\
+\
+public class NeopixelBLEController : MonoBehaviour\
+\{\
+    public string DeviceName = "ESP32 Neopixel Controller";\
+    public string ServiceUUID = "A9E90000-194C-4523-A473-5FDF36AA4D18";\
+    public string LedUUID = "A9E90001-194C-4523-A473-5FDF36AA4D18";\
+\
+    public PokeInteractable pokeInteractable;\
+    public Grabbable varitaGrabbable;\
+    public Text connectionStatus;\
+    public Text Motors;\
+    public GameObject b_r_wrist;\
+\
+    private bool isConnected = false;\
+    private string _deviceAddress;\
+    private bool scanning = false;\
+\
+    private byte motorState = 0;\
+    private bool isVaritaGrabbed = false;\
+    private Vector3 lastWristPosition;\
+    private float lastUpdateTime = 0;\
+    private const float positionThreshold = 0.1f;\
+\
+    private Coroutine resetMotorCoroutine; // Corrutina para gestionar el temporizador\
+\
+    void Start()\
+    \{\
+        UpdateConnectionStatus("Iniciando BLE...");\
+\
+        BluetoothLEHardwareInterface.Initialize(true, false, () =>\
+        \{\
+            UpdateConnectionStatus("BLE inicializado.");\
+            SetNeopixelColor(false);\
+        \}, (error) =>\
+        \{\
+            UpdateConnectionStatus("Error al inicializar BLE: " + error);\
+        \});\
+\
+        if (pokeInteractable != null)\
+        \{\
+            pokeInteractable.WhenPointerEventRaised += OnPokeInteraction;\
+        \}\
+\
+        if (varitaGrabbable != null)\
+        \{\
+            varitaGrabbable.WhenPointerEventRaised += OnVaritaGrabEvent;\
+        \}\
+\
+        if (b_r_wrist != null)\
+        \{\
+            lastWristPosition = b_r_wrist.transform.position;\
+        \}\
+    \}\
+\
+    private void Update()\
+    \{\
+        if (b_r_wrist != null && isVaritaGrabbed && isConnected)\
+        \{\
+            Vector3 currentWristPosition = b_r_wrist.transform.position;\
+            float distanceMoved = Vector3.Distance(currentWristPosition, lastWristPosition);\
+\
+            if (distanceMoved > positionThreshold)\
+            \{\
+                if (Time.time - lastUpdateTime <= 0.2f) // Movimiento detectado en menos de 0.5 segundos\
+                \{\
+                    UpdateMotorState(2); // Cambiar estado del motor a 2\
+                \}\
+\
+                lastWristPosition = currentWristPosition;\
+                lastUpdateTime = Time.time;\
+            \}\
+        \}\
+    \}\
+\
+    private void UpdateMotorState(byte newState)\
+    \{\
+        if (motorState != newState)\
+        \{\
+            motorState = newState;\
+            SendColorAndMotorCommand(0, 0, 255, motorState);\
+\
+            if (newState == 2) // Si el motor est\'e1 en estado 2, inicia el temporizador\
+            \{\
+                if (resetMotorCoroutine != null)\
+                \{\
+                    StopCoroutine(resetMotorCoroutine); // Detiene la corrutina anterior si a\'fan est\'e1 corriendo\
+                \}\
+                resetMotorCoroutine = StartCoroutine(ResetMotorStateAfterDelay(2f)); // Reinicia a 0 despu\'e9s de 5 segundos\
+            \}\
+\
+            Motors.text = ($"MotorState actualizado: \{motorState\}");\
+        \}\
+    \}\
+\
+    private IEnumerator ResetMotorStateAfterDelay(float delay)\
+    \{\
+        yield return new WaitForSeconds(delay);\
+        UpdateMotorState(0); // Restablece el estado del motor a 0\
+    \}\
+\
+    private void OnPokeInteraction(PointerEvent evt)\
+    \{\
+        UpdateConnectionStatus("Poke detectado. Evento: " + evt.Type.ToString());\
+\
+        if (evt.Type == PointerEventType.Select && !isConnected && !scanning)\
+        \{\
+            UpdateConnectionStatus("Iniciando escaneo por BLE...");\
+            ScanForDevice();\
+        \}\
+    \}\
+\
+    private void OnVaritaGrabEvent(PointerEvent evt)\
+    \{\
+        if (evt.Type == PointerEventType.Select && isConnected)\
+        \{\
+            UpdateConnectionStatus("Varita agarrada, cambiando LED a morado.");\
+            SetNeopixelColor(true, 128, 0, 128);\
+            isVaritaGrabbed = true;\
+        \}\
+        else if (evt.Type == PointerEventType.Unselect && isConnected)\
+        \{\
+            UpdateConnectionStatus("Varita soltada, cambiando LED a verde.");\
+            SetNeopixelColor(true, 0, 255, 0);\
+            isVaritaGrabbed = false;\
+        \}\
+    \}\
+\
+    public void SendColorAndMotorCommand(byte r, byte g, byte b, byte motorState)\
+    \{\
+        byte[] command = new byte[4];\
+        command[0] = r;\
+        command[1] = g;\
+        command[2] = b;\
+        command[3] = motorState;\
+\
+        BluetoothLEHardwareInterface.WriteCharacteristic(_deviceAddress, ServiceUUID, LedUUID, command, command.Length, true, (characteristicUUID) =>\
+        \{\
+            UpdateConnectionStatus($"Comando enviado: LED(\{r\}, \{g\}, \{b\}) Motor estado: \{motorState\}");\
+        \});\
+    \}\
+\
+    private void UpdateConnectionStatus(string message)\
+    \{\
+        connectionStatus.text = message;\
+    \}\
+\
+    void ScanForDevice()\
+    \{\
+        scanning = true;\
+        UpdateConnectionStatus("Escaneando dispositivos BLE...");\
+\
+        BluetoothLEHardwareInterface.ScanForPeripheralsWithServices(null, (address, name) =>\
+        \{\
+            UpdateConnectionStatus($"Dispositivo detectado: \{name\}");\
+\
+            if (name.Contains(DeviceName))\
+            \{\
+                UpdateConnectionStatus("Dispositivo encontrado: " + name);\
+                BluetoothLEHardwareInterface.StopScan();\
+                _deviceAddress = address;\
+                ConnectToDevice();\
+            \}\
+        \}, (address, name, rssi, advertisingInfo) =>\
+        \{\
+            UpdateConnectionStatus($"Dispositivo detectado: \{name\} con RSSI: \{rssi\}");\
+        \});\
+    \}\
+\
+    void ConnectToDevice()\
+    \{\
+        UpdateConnectionStatus("Conectando al dispositivo...");\
+\
+        BluetoothLEHardwareInterface.ConnectToPeripheral(_deviceAddress, null, null, (address, serviceUUID, characteristicUUID) =>\
+        \{\
+            if (serviceUUID.Trim().ToLower() == ServiceUUID.ToLower() && characteristicUUID.Trim().ToLower() == LedUUID.ToLower())\
+            \{\
+                isConnected = true;\
+                UpdateConnectionStatus("Conectado al dispositivo ESP32");\
+                SetNeopixelColor(true, 0, 255, 0);\
+            \}\
+        \}, (disconnectedAddress) =>\
+        \{\
+            isConnected = false;\
+            UpdateConnectionStatus("Dispositivo desconectado");\
+            SetNeopixelColor(false);\
+        \});\
+    \}\
+\
+    void SetNeopixelColor(bool connected, byte r = 0, byte g = 255, byte b = 0)\
+    \{\
+        byte motorState = 0;\
+        byte[] data = new byte[] \{ r, g, b, motorState \};\
+\
+        BluetoothLEHardwareInterface.WriteCharacteristic(_deviceAddress, ServiceUUID, LedUUID, data, data.Length, true, (characteristicUUID) =>\
+        \{\
+            UpdateConnectionStatus(connected ? $"Neopixel cambiado a RGB(\{r\}, \{g\}, \{b\})" : "Neopixel apagado.");\
+        \});\
+    \}\
+\}}

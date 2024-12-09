@@ -1,0 +1,517 @@
+using UnityEngine;
+using UnityEngine.UI;
+using System.Collections.Generic;
+using Oculus.Interaction;
+using UnityEngine.Android;
+using System;
+using System.Collections;
+
+public class NeopixelBLEController : MonoBehaviour
+{
+    public string DeviceName = "ESP32 Neopixel Controller";  // Nombre del dispositivo BLE
+    public string ServiceUUID = "A9E90000-194C-4523-A473-5FDF36AA4D18";  // UUID del servicio BLE
+    public string IMUUUID = "A9E90001-194C-4523-A473-5FDF36AA4D18";  // UUID para los datos de IMU
+    public string LedUUID = "A9E90002-194C-4523-A473-5FDF36AA4D18";  // UUID de la característica para controlar el Neopixel
+
+    public PokeInteractable pokeInteractable;  // El botón de interacción en VR (PokeInteractable)
+    public Grabbable varitaGrabbable;  // El componente Grabbable de la varita
+    public Text connectionStatus;  // Texto para el estado de la conexión
+    public Text imuDataText;  // Texto para mostrar los datos de IMU
+    public Text imuDataCanvasText;  // Texto para mostrar los datos de IMU en el Canvas
+    public Text LedMotorstatus;  // Texto para mostrar los datos de IMU en el Canvas
+
+    private bool isConnected = false;  // Bandera de conexión
+    private string _deviceAddress;  // Dirección del dispositivo BLE
+    private bool scanning = false;
+
+    void Start()
+    {
+        // Solicitar permisos antes de inicializar
+        RequestPermissions();
+
+        // Esperar un momento antes de inicializar BLE
+        StartCoroutine(InitializeBLEAfterDelay());
+
+        // Verificar si el PokeInteractable está asignado y añadir el evento
+        if (pokeInteractable != null)
+        {
+            pokeInteractable.WhenPointerEventRaised += OnPokeInteraction;
+        }
+        else
+        {
+            UpdateConnectionStatus("Error: PokeInteractable no configurado.");
+        }
+        // Escuchar eventos de agarre de la varita
+        if (varitaGrabbable != null)
+        {
+            varitaGrabbable.WhenPointerEventRaised += OnVaritaGrabEvent;
+        }
+        else
+        {
+            UpdateConnectionStatus("Error: Varita Grabbable no configurado.");
+        }
+    }
+
+    private void OnDestroy()
+    {
+        // Eliminar el evento de PokeInteractable al destruir el objeto
+        if (pokeInteractable != null)
+        {
+            pokeInteractable.WhenPointerEventRaised -= OnPokeInteraction;
+        }
+    }
+
+    private IEnumerator InitializeBLEAfterDelay()
+    {
+        yield return new WaitForSeconds(1f); // Esperar 1 segundo
+
+        UpdateConnectionStatus("Iniciando BLE...");
+
+        try
+        {
+            BluetoothLEHardwareInterface.Initialize(true, false, () =>
+            {
+                // Éxito en la inicialización
+                UpdateConnectionStatus("BLE inicializado correctamente.");
+                Debug.Log("BLE inicializado con éxito");
+            }, (error) =>
+            {
+                // Error en la inicialización
+                Debug.LogError("Error BLE: " + error);
+                UpdateConnectionStatus("Error BLE: " + error);
+
+                // Intentar reinicializar si hay error
+                if (error.Contains("failed to get notification descriptor"))
+                {
+                    StartCoroutine(RetryInitialization());
+                }
+            });
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("Excepción al inicializar BLE: " + e.Message);
+            UpdateConnectionStatus("Error al inicializar: " + e.Message);
+        }
+    }
+
+    private IEnumerator RetryInitialization()
+    {
+        yield return new WaitForSeconds(2f); // Esperar 2 segundos antes de reintentar
+
+        Debug.Log("Reintentando inicialización BLE...");
+        UpdateConnectionStatus("Reintentando conexión BLE...");
+
+        // No se requiere DeInit, simplemente intentar de nuevo
+        StartCoroutine(InitializeBLEAfterDelay());
+    }
+
+    // Método que maneja la interacción con el PokeInteractable
+    private void OnPokeInteraction(PointerEvent evt)
+    {
+        if (evt.Type == PointerEventType.Select && !isConnected && !scanning)
+        {
+            UpdateConnectionStatus("Iniciando escaneo por BLE...");
+            scanning = true;
+            ScanForDevice();
+        }
+    }
+
+    void ScanForDevice()
+    {
+        scanning = true;
+        UpdateConnectionStatus("Escaneando dispositivos BLE...");
+
+        BluetoothLEHardwareInterface.ScanForPeripheralsWithServices(null, (address, name) =>
+        {
+            UpdateConnectionStatus($"Dispositivo detectado: {name}");
+
+            if (name.Contains(DeviceName))
+            {
+                UpdateConnectionStatus("Dispositivo encontrado: " + name);
+                BluetoothLEHardwareInterface.StopScan();
+                _deviceAddress = address;
+                ConnectToDevice();
+            }
+        });
+    }
+
+    void ConnectToDevice()
+    {
+        try
+        {
+            Debug.Log($"Intentando conectar al dispositivo: {_deviceAddress}");
+            UpdateConnectionStatus("Intentando conectar...");
+
+            BluetoothLEHardwareInterface.ConnectToPeripheral(_deviceAddress, null, null, (address, serviceUUID, characteristicUUID) =>
+            {
+                Debug.Log($"Conectado - Address: {address}, Service: {serviceUUID}, Char: {characteristicUUID}");
+
+                if (serviceUUID.Trim().ToLower() == ServiceUUID.ToLower() &&
+                    characteristicUUID.Trim().ToLower() == IMUUUID.ToLower())
+                {
+                    isConnected = true;
+                    UpdateConnectionStatus("Conectado a ESP32");
+
+                    // Esperar un momento antes de suscribirse
+                    StartCoroutine(SubscribeAfterDelay());
+                }
+            }, (disconnectedAddress) =>
+            {
+                isConnected = false;
+                Debug.Log("Dispositivo desconectado: " + disconnectedAddress);
+                UpdateConnectionStatus("Dispositivo desconectado");
+            });
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("Error en conexión: " + e.Message);
+            UpdateConnectionStatus("Error en conexión: " + e.Message);
+        }
+    }
+
+    private IEnumerator SubscribeAfterDelay()
+    {
+        // Esperar antes de continuar
+        yield return new WaitForSeconds(1f);
+
+        // Llamamos a la función que maneja la suscripción sin utilizar try-catch dentro de la corrutina.
+        SubscribeToIMUData();
+    }
+
+    private void SubscribeToIMUData()
+    {
+        try
+        {
+            BluetoothLEHardwareInterface.SubscribeCharacteristicWithDeviceAddress(
+                _deviceAddress,
+                ServiceUUID,
+                IMUUUID,
+                null,
+                (deviceAddress, characteristicUUID, bytes) =>
+                {
+                    Debug.Log($"Datos recibidos de {deviceAddress}");
+                    OnIMUDataReceived(deviceAddress, characteristicUUID, bytes);
+                });
+
+            // Esperar antes de escribir el descriptor
+            StartCoroutine(WriteDescriptorAfterDelay());
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("Error en suscripción: " + e.Message);
+            UpdateConnectionStatus("Error en suscripción: " + e.Message);
+        }
+    }
+
+    private IEnumerator WriteDescriptorAfterDelay()
+    {
+        // Esperar antes de continuar
+        yield return new WaitForSeconds(0.5f);
+
+        try
+        {
+            BluetoothLEHardwareInterface.WriteCharacteristic(
+                _deviceAddress,
+                ServiceUUID,
+                IMUUUID,
+                new byte[] { 0x01, 0x00 },
+                2,
+                false,
+                error =>
+                {
+                    if (string.IsNullOrEmpty(error))
+                    {
+                        Debug.Log("Notificaciones habilitadas");
+                        UpdateConnectionStatus("Listo para recibir datos");
+                    }
+                    else
+                    {
+                        Debug.LogError("Error en notificaciones: " + error);
+                        UpdateConnectionStatus("Error en notificaciones");
+                    }
+                }
+            );
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("Error en la escritura del descriptor: " + e.Message);
+            UpdateConnectionStatus("Error en la escritura del descriptor: " + e.Message);
+        }
+    }
+
+    private void OnIMUDataReceived(string deviceAddress, string characteristic, byte[] data)
+    {
+        if (data.Length >= 6)  // Ejemplo: suponiendo que la IMU envía 6 bytes (3 ejes de 2 bytes cada uno)
+        {
+            short accelX = System.BitConverter.ToInt16(data, 0);
+            short accelY = System.BitConverter.ToInt16(data, 2);
+            short accelZ = System.BitConverter.ToInt16(data, 4);
+
+            imuDataText.text = $"IMU Data: X={accelX}, Y={accelY}, Z={accelZ}";
+            imuDataCanvasText.text = $"IMU Data: X={accelX}, Y={accelY}, Z={accelZ}";
+            Debug.Log($"IMU Data - X:{accelX}, Y:{accelY}, Z:{accelZ}");
+        }
+        else
+        {
+            UpdateConnectionStatus("Datos de IMU recibidos con tamaño inesperado.");
+        }
+    }
+
+    private void UpdateConnectionStatus(string message)
+    {
+        connectionStatus.text = message;
+    }
+
+    private void RequestPermissions()
+    {
+        try
+        {
+            if (Application.platform == RuntimePlatform.Android)
+            {
+                // Verificar y solicitar permisos de ubicación
+                if (!Permission.HasUserAuthorizedPermission(Permission.FineLocation))
+                {
+                    Permission.RequestUserPermission(Permission.FineLocation);
+                }
+
+                // Permisos específicos para Android 12 o superior
+                if (SystemInfo.operatingSystem.Contains("Android 12") ||
+                    SystemInfo.operatingSystem.Contains("Android 13"))
+                {
+                    string[] permissions = new string[]
+                    {
+                        "android.permission.BLUETOOTH_SCAN",
+                        "android.permission.BLUETOOTH_CONNECT",
+                        "android.permission.BLUETOOTH_ADVERTISE"
+                    };
+
+                    foreach (string permission in permissions)
+                    {
+                        if (!Permission.HasUserAuthorizedPermission(permission))
+                        {
+                            Permission.RequestUserPermission(permission);
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError("Error al solicitar permisos: " + e.Message);
+            UpdateConnectionStatus("Error en permisos: " + e.Message);
+        }
+    }
+
+    // Método invocado al agarrar o soltar la varita
+    private void OnVaritaGrabEvent(PointerEvent evt)
+    {
+        if (evt.Type == PointerEventType.Select && isConnected)
+        {
+            // Cuando la varita es agarrada, cambia el LED a morado
+            SendColorAndMotorCommand(128, 0, 128, true);  // Morado y motor encendido
+        }
+        else if (evt.Type == PointerEventType.Unselect && isConnected)
+        {
+            // Cuando la varita es soltada, vuelve a verde
+            SendColorAndMotorCommand(0, 255, 0, false);  // Verde y motor apagado
+        }
+    }
+    // Enviar color y estado del motor en un solo comando
+    public void SendColorAndMotorCommand(byte r, byte g, byte b, bool motorState)
+    {
+        byte[] command = new byte[4];
+        command[0] = r;  // Rojo
+        command[1] = g;  // Verde
+        command[2] = b;  // Azul
+        command[3] = (byte)(motorState ? 1 : 0);  // 1 para encender, 0 para apagar
+
+        // Envía el comando a la característica BLE
+        BluetoothLEHardwareInterface.WriteCharacteristic(_deviceAddress, ServiceUUID, LedUUID, command, command.Length, true, (characteristicUUID) =>
+        {
+            LedMotorstatus.text = ("Comando enviado: LED(" + r + ", " + g + ", " + b + ") Motor estado: " + (motorState ? "Encendido" : "Apagado"));
+        });
+    }
+}
+
+
+
+
+
+
+
+
+
+
+#include <Wire.h>
+#include <Adafruit_MPU6050.h>
+#include <BLEDevice.h>
+#include <BLEUtils.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
+#include <Adafruit_NeoPixel.h>
+
+// Pines de I2C
+#define SDA_PIN 1
+#define SCL_PIN 2
+
+// Pines de NeoPixel
+#define NEOPIXEL_PIN 21
+#define NUMPIXELS 1
+#define MOTOR_PIN 12  // Pin donde está conectado el motor
+
+Adafruit_MPU6050 myIMU;
+Adafruit_NeoPixel pixels(NUMPIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
+
+// UUIDs para BLE
+#define SERVICE_UUID "A9E90000-194C-4523-A473-5FDF36AA4D18"
+#define CHAR_UUID_IMU "A9E90001-194C-4523-A473-5FDF36AA4D18"
+#define CHAR_UUID_NEOPIXEL "A9E90002-194C-4523-A473-5FDF36AA4D18"
+BLECharacteristic *pNeoPixelCharacteristic;
+BLECharacteristic *pIMUCharacteristic;
+
+float accelX, accelY, accelZ, gyroX, gyroY, gyroZ;
+
+bool deviceConnected = false;
+unsigned long previousMillis = 0;
+const long interval = 500;
+bool ledState = false;
+
+// Función para cambiar el color del Neopixel
+void setNeopixelColor(uint8_t r, uint8_t g, uint8_t b) {
+  pixels.setPixelColor(0, pixels.Color(r, g, b));
+  pixels.show();
+}
+void controlMotor(bool state);  // Declaración de función para controlar el motor
+
+// Callbacks para conexión BLE
+class MyServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer* pServer) {
+    deviceConnected = true;
+    Serial.println("Conectado a dispositivo BLE");
+    setNeopixelColor(0, 255, 0);
+  }
+
+  void onDisconnect(BLEServer* pServer) {
+    deviceConnected = false;
+    Serial.println("Desconectado de dispositivo BLE");
+    setNeopixelColor(255, 0, 0);
+  }
+};
+
+// Callbacks para escritura en la característica
+class MyNeoPixelCallbacks : public BLECharacteristicCallbacks {
+  void onWrite(BLECharacteristic *pNeoPixelCharacteristic) {
+    std::string value = pNeoPixelCharacteristic->getValue();
+    if (value.length() == 4) {
+      uint8_t r = value[0];
+      uint8_t g = value[1];
+      uint8_t b = value[2];
+      bool motorState = value[3];  // Estado del motor (0 o 1)
+      
+      setNeopixelColor(r, g, b);
+      controlMotor(motorState);  // Controlar el motor según el estado recibido
+    } else {
+      setNeopixelColor(125, 125, 0);
+    }
+  }
+};
+
+void setup() {
+  Serial.begin(9600);
+  delay(1000);
+
+  Wire.begin(SDA_PIN, SCL_PIN);
+
+  if (!myIMU.begin()) {
+    Serial.println("No se pudo inicializar el MPU6050.");
+    while (1);
+  } else {
+    Serial.println("MPU6050 inicializado correctamente.");
+  }
+
+  pixels.begin();
+  setNeopixelColor(255, 0, 0);
+
+  pinMode(MOTOR_PIN, OUTPUT);  // Configura el pin del motor como salida
+  digitalWrite(MOTOR_PIN, LOW);  // Asegúrate de que el motor esté apagado inicialmente
+
+  BLEDevice::init("ESP32 Neopixel Controller");
+  BLEServer *pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  pIMUCharacteristic = pService->createCharacteristic(
+      CHAR_UUID_IMU,
+      BLECharacteristic::PROPERTY_NOTIFY
+  );
+
+    // Crear característica para el Neopixel
+  pNeoPixelCharacteristic = pService->createCharacteristic(
+                      CHAR_UUID_NEOPIXEL,
+                      BLECharacteristic::PROPERTY_WRITE
+                    );
+
+  // Modificación: Añadimos y configuramos el descriptor BLE2902
+  BLE2902 *desc = new BLE2902();
+  desc->setNotifications(true);  // Asegura que las notificaciones están habilitadas
+  pIMUCharacteristic->addDescriptor(desc);
+
+  pService->start();
+  pServer->getAdvertising()->start();
+}
+
+void loop() {
+  if (!deviceConnected) {
+    unsigned long currentMillis = millis();
+
+    if (currentMillis - previousMillis >= interval) {
+      previousMillis = currentMillis;
+      if (ledState) {
+        setNeopixelColor(0, 0, 0);
+      } else {
+        setNeopixelColor(255, 0, 0);
+      }
+      ledState = !ledState;
+    }
+  } else {
+    sensors_event_t accel, gyro, temp;
+    myIMU.getEvent(&accel, &gyro, &temp);
+
+    accelX = accel.acceleration.x;
+    accelY = accel.acceleration.y;
+    accelZ = accel.acceleration.z;
+    gyroX = gyro.gyro.x;
+    gyroY = gyro.gyro.y;
+    gyroZ = gyro.gyro.z;
+
+    byte imuData[24];
+    memcpy(imuData, &accelX, sizeof(accelX));
+    memcpy(imuData + 4, &accelY, sizeof(accelY));
+    memcpy(imuData + 8, &accelZ, sizeof(accelZ));
+    memcpy(imuData + 12, &gyroX, sizeof(gyroX));
+    memcpy(imuData + 16, &gyroY, sizeof(gyroY));
+    memcpy(imuData + 20, &gyroZ, sizeof(gyroZ));
+
+    pIMUCharacteristic->setValue(imuData, sizeof(imuData));
+    pIMUCharacteristic->notify();
+
+    Serial.print("AX: "); Serial.print(accelX, 2); Serial.print(" ");
+    Serial.print("AY: "); Serial.print(accelY, 2); Serial.print(" ");
+    Serial.print("AZ: "); Serial.print(accelZ, 2); Serial.print(" ");
+    Serial.print("GX: "); Serial.print(gyroX, 2); Serial.print(" ");
+    Serial.print("GY: "); Serial.print(gyroY, 2); Serial.print(" ");
+    Serial.print("GZ: "); Serial.println(gyroZ, 2);
+
+    delay(1000);  // Incrementar intervalo para evitar saturación
+  }
+}
+// Definición de la función para controlar el motor
+void controlMotor(bool state) {
+  if (state) {
+    digitalWrite(MOTOR_PIN, HIGH);  // Enciende el motor
+    Serial.println("Motor Encendido");
+  } else {
+    digitalWrite(MOTOR_PIN, LOW);   // Apaga el motor
+    Serial.println("Motor Apagado");
+  }
+}

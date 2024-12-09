@@ -1,0 +1,199 @@
+{\rtf1\ansi\ansicpg1252\cocoartf2820
+\cocoatextscaling0\cocoaplatform0{\fonttbl\f0\fswiss\fcharset0 Helvetica;}
+{\colortbl;\red255\green255\blue255;}
+{\*\expandedcolortbl;;}
+\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx720\tx1440\tx2160\tx2880\tx3600\tx4320\tx5040\tx5760\tx6480\tx7200\tx7920\tx8640\pardirnatural\partightenfactor0
+
+\f0\fs24 \cf0 using UnityEngine;\
+using Oculus.Interaction;\
+using UnityEngine.UI;\
+\
+public class NeopixelBLEController : MonoBehaviour\
+\{\
+    public string DeviceName = "ESP32 Neopixel Controller";\
+    public string ServiceUUID = "A9E90000-194C-4523-A473-5FDF36AA4D18";\
+    public string LedUUID = "A9E90001-194C-4523-A473-5FDF36AA4D18";\
+\
+    public PokeInteractable pokeInteractable;\
+    public Grabbable varitaGrabbable;\
+    public Text connectionStatus;\
+    public Text Motors;\
+\
+    private bool isConnected = false;\
+    private string _deviceAddress;\
+    private bool scanning = false;\
+\
+    private byte motorState = 0;\
+\
+    void Start()\
+    \{\
+        UpdateConnectionStatus("Iniciando BLE...");\
+\
+        BluetoothLEHardwareInterface.Initialize(true, false, () =>\
+        \{\
+            UpdateConnectionStatus("BLE inicializado.");\
+            SetNeopixelColor(false);\
+        \}, (error) =>\
+        \{\
+            UpdateConnectionStatus("Error al inicializar BLE: " + error);\
+        \});\
+\
+        if (pokeInteractable != null)\
+        \{\
+            pokeInteractable.WhenPointerEventRaised += OnPokeInteraction;\
+        \}\
+        else\
+        \{\
+            UpdateConnectionStatus("Error: PokeInteractable no configurado.");\
+        \}\
+\
+        if (varitaGrabbable != null)\
+        \{\
+            varitaGrabbable.WhenPointerEventRaised += OnVaritaGrabEvent;\
+        \}\
+        else\
+        \{\
+            UpdateConnectionStatus("Error: Varita Grabbable no configurado.");\
+        \}\
+    \}\
+\
+    private void Update()\
+    \{\
+        if (varitaGrabbable != null && isConnected)\
+        \{\
+            // Obtenemos la rotaci\'f3n en el eje X de la varita\
+            float rotationX = varitaGrabbable.transform.eulerAngles.x;\
+\
+            // Convertimos el rango de 360\'b0 a un rango de -180\'b0 a 180\'b0\
+            if (rotationX > 180)\
+                rotationX -= 360;\
+\
+            // Cambiamos motorState basado en la rotaci\'f3n\
+            if (Mathf.Abs(rotationX) < 15) // Vertical (aproximadamente)\
+            \{\
+                UpdateMotorState(0);\
+            \}\
+            else if (rotationX > 80 && rotationX < 100) // Positivo en X\
+            \{\
+                UpdateMotorState(1);\
+            \}\
+            else if (rotationX < -80 && rotationX > -100) // Negativo en X\
+            \{\
+                UpdateMotorState(2);\
+            \}\
+        \}\
+    \}\
+\
+    private void UpdateMotorState(byte newState)\
+    \{\
+        if (motorState != newState)\
+        \{\
+            motorState = newState;\
+            // Env\'eda el comando con el nuevo estado del motor\
+            SendColorAndMotorCommand(0, 0, 255, motorState); // Color azul como ejemplo\
+            Motors.text = ($"MotorState actualizado: \{motorState\}");\
+        \}\
+    \}\
+\
+    private void OnPokeInteraction(PointerEvent evt)\
+    \{\
+        UpdateConnectionStatus("Poke detectado. Evento: " + evt.Type.ToString());\
+\
+        if (evt.Type == PointerEventType.Select && !isConnected && !scanning)\
+        \{\
+            UpdateConnectionStatus("Iniciando escaneo por BLE...");\
+            ScanForDevice();\
+        \}\
+    \}\
+\
+    private void OnVaritaGrabEvent(PointerEvent evt)\
+    \{\
+        if (evt.Type == PointerEventType.Select && isConnected)\
+        \{\
+            UpdateConnectionStatus("Varita agarrada, cambiando LED a morado.");\
+            SendColorAndMotorCommand(128, 0, 128, 2);\
+        \}\
+        else if (evt.Type == PointerEventType.Unselect && isConnected)\
+        \{\
+            UpdateConnectionStatus("Varita soltada, cambiando LED a verde.");\
+            SendColorAndMotorCommand(0, 255, 0, 1);\
+        \}\
+    \}\
+\
+    public void SendColorAndMotorCommand(byte r, byte g, byte b, byte motorState)\
+    \{\
+        byte[] command = new byte[4];\
+        command[0] = r;\
+        command[1] = g;\
+        command[2] = b;\
+        command[3] = motorState;\
+\
+        BluetoothLEHardwareInterface.WriteCharacteristic(_deviceAddress, ServiceUUID, LedUUID, command, command.Length, true, (characteristicUUID) =>\
+        \{\
+            UpdateConnectionStatus($"Comando enviado: LED(\{r\}, \{g\}, \{b\}) Motor estado: \{motorState\}");\
+        \});\
+    \}\
+\
+    private void UpdateConnectionStatus(string message)\
+    \{\
+        connectionStatus.text = message;\
+    \}\
+\
+    void ScanForDevice()\
+    \{\
+        scanning = true;\
+        UpdateConnectionStatus("Escaneando dispositivos BLE...");\
+\
+        BluetoothLEHardwareInterface.ScanForPeripheralsWithServices(null, (address, name) =>\
+        \{\
+            UpdateConnectionStatus($"Dispositivo detectado: \{name\}");\
+\
+            if (name.Contains(DeviceName))\
+            \{\
+                UpdateConnectionStatus("Dispositivo encontrado: " + name);\
+                BluetoothLEHardwareInterface.StopScan();\
+                _deviceAddress = address;\
+                ConnectToDevice();\
+            \}\
+        \}, (address, name, rssi, advertisingInfo) =>\
+        \{\
+            UpdateConnectionStatus($"Dispositivo detectado: \{name\} con RSSI: \{rssi\}");\
+        \});\
+    \}\
+\
+    void ConnectToDevice()\
+    \{\
+        UpdateConnectionStatus("Conectando al dispositivo...");\
+\
+        BluetoothLEHardwareInterface.ConnectToPeripheral(_deviceAddress, null, null, (address, serviceUUID, characteristicUUID) =>\
+        \{\
+            if (serviceUUID.Trim().ToLower() == ServiceUUID.ToLower() && characteristicUUID.Trim().ToLower() == LedUUID.ToLower())\
+            \{\
+                isConnected = true;\
+                UpdateConnectionStatus("Conectado al dispositivo ESP32");\
+                SetNeopixelColor(true);\
+            \}\
+        \}, (disconnectedAddress) =>\
+        \{\
+            isConnected = false;\
+            UpdateConnectionStatus("Dispositivo desconectado");\
+            SetNeopixelColor(false);\
+        \});\
+    \}\
+\
+    void SetNeopixelColor(bool connected)\
+    \{\
+        byte r = connected ? (byte)0x00 : (byte)0xFF;\
+        byte g = connected ? (byte)0xFF : (byte)0x00;\
+        byte b = (byte)0x00;\
+        byte motorState = 0;\
+        byte[] data = new byte[] \{ r, g, b, motorState \};\
+\
+        BluetoothLEHardwareInterface.WriteCharacteristic(_deviceAddress, ServiceUUID, LedUUID, data, data.Length, true, (characteristicUUID) =>\
+        \{\
+            UpdateConnectionStatus(connected ? "Neopixel cambiado a verde." : "Neopixel cambiado a rojo.");\
+        \});\
+    \}\
+\}\
+}
