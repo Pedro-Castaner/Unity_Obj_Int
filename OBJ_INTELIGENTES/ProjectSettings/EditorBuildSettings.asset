@@ -11,6 +11,9 @@ EditorBuildSettings:
   - enabled: 1
     path: Assets/Scenes/MovVoz.unity
     guid: a673b5042a4a04ec9bb102912a40a3a8
+  - enabled: 0
+    path: Assets/Scenes/PruebaManoConHechizo.unity
+    guid: 32f27508611ff49469fbb77a35a6326c
   m_configObjects:
     Unity.XR.Oculus.Settings: {fileID: 11400000, guid: 047fb89ab8dad40d6a677cdf338ff802, type: 2}
     UnityEditor.XR.ARCore.ARCoreSettings: {fileID: 11400000, guid: 378bd3044af4f4b93a41689d3d6707e7, type: 2}

@@ -28,6 +28,11 @@ public class NeopixelBLEController : MonoBehaviour
     private Vector3 lastWristPosition;
     private float lastUpdateTime = 0;
     private const float positionThreshold = 0.1f;
+    public AudioSource audioSource; // El componente AudioSource
+    public AudioClip initialSound;  // Sonido inicial
+    public AudioClip grabSound;     // Sonido al agarrar la varita
+
+
 
     private GameObject currentWrist; // Mano actual que sostiene la varita
     private Coroutine resetMotorCoroutine;
@@ -39,9 +44,17 @@ public class NeopixelBLEController : MonoBehaviour
 
         UpdateConnectionStatus("Iniciando BLE...");
 
+        // Configurar sonido inicial
+        if (audioSource != null && initialSound != null)
+        {
+            audioSource.clip = initialSound;
+            audioSource.loop = true;
+            audioSource.Play();
+        }
+
         BluetoothLEHardwareInterface.Initialize(true, false, () =>
         {
-            UpdateConnectionStatus("BLE inicializado.");
+            UpdateConnectionStatus("Inicializando BLE..");
             SetNeopixelColor(false);
         }, (error) =>
         {
@@ -90,7 +103,7 @@ public class NeopixelBLEController : MonoBehaviour
             {
                 if (Time.time - lastUpdateTime <= 0.2f)
                 {
-                    UpdateMotorState(2);
+                    UpdateMotorState(1);
                 }
 
                 lastWristPosition = currentWristPosition;
@@ -105,7 +118,7 @@ public class NeopixelBLEController : MonoBehaviour
         {
             motorState = newState;
 
-            if (motorState == 2)
+            if (motorState == 1)
             {
                 isWristMoving = true;
 
@@ -152,14 +165,31 @@ public class NeopixelBLEController : MonoBehaviour
             isVaritaGrabbed = true;
             UpdateCurrentWrist();
             SetNeopixelColor(true, 128, 0, 128);
+
+            // Cambiar al sonido de agarrar
+            if (audioSource != null && grabSound != null)
+            {
+                audioSource.clip = grabSound;
+                audioSource.loop = false;
+                audioSource.Play();
+            }
         }
         else if (evt.Type == PointerEventType.Unselect && isConnected)
         {
             isVaritaGrabbed = false;
             currentWrist = null;
             SetNeopixelColor(true, 0, 255, 0);
+
+            // Cambiar al sonido inicial
+            if (audioSource != null && initialSound != null)
+            {
+                audioSource.clip = initialSound;
+                audioSource.loop = true;
+                audioSource.Play();
+            }
         }
     }
+
 
     private void UpdateCurrentWrist()
     {
@@ -227,4 +257,10 @@ public class NeopixelBLEController : MonoBehaviour
 
         BluetoothLEHardwareInterface.WriteCharacteristic(_deviceAddress, ServiceUUID, LedUUID, data, data.Length, true, null);
     }
+
+    public bool IsWristMoving()
+    {
+        return isWristMoving;
+    }
+
 }
